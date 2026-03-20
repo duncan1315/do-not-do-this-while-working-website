@@ -425,9 +425,13 @@ async def bj_main():
     ui_print(f"  Totals : {'Yes' if cfg['bj_totals']=='true' else 'No'}")
     ui_print(f"  Chips  : {cfg['bj_chips']}")
     div()
-    ui_print("  [R] Reset   [Enter] Start"); div("=")
+    ui_print("  [R] Reset chips only   [D] Reset all   [Enter] Start"); div("=")
     ch=await ui_input("  > ")
     if ch.lower()=="r":
+        ls_set("bj_chips", BJ_DEF["bj_chips"]); cfg=bj_cfg()
+        ui_clear(); div("="); ui_print(f"  Chips restored to {cfg['bj_chips']}."); div("=")
+        await ui_input("  [Enter]...")
+    elif ch.lower()=="d":
         bj_reset(); cfg=bj_cfg()
         ui_clear(); div("="); ui_print("  Reset. Chips: 300."); div("=")
         await ui_input("  [Enter]...")
