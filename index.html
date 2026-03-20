@@ -2,23 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Casino</title>
 <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
 <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body {
-  height: 100%;
+html {
+  height: -webkit-fill-available;
+  overflow: hidden;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
   overflow: hidden;
   background: #111;
   color: #d0d0d0;
   font-family: 'Courier New', Courier, monospace;
+  position: fixed;
+  width: 100%;
 }
 #output {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  bottom: 56px;
+  flex: 1;
+  min-height: 0;
   white-space: pre;
   font-size: 13px;
   line-height: 1.45;
@@ -26,15 +34,14 @@ html, body {
   overflow-y: auto;
   background: #0a0a0a;
   word-break: break-all;
-  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 #input-row {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  height: 56px;
+  flex-shrink: 0;
   display: flex;
   gap: 6px;
   padding: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
   background: #1a1a1a;
   border-top: 1px solid #333;
 }
@@ -78,20 +85,11 @@ html, body {
 }
 </style>
 <script>
-// Keep input row above iOS keyboard using visualViewport
-if (window.visualViewport) {
-  function onVVResize() {
-    const vv = window.visualViewport;
-    const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
-    const safeBottom = Math.max(0, keyboardHeight);
-    const inputRow = document.getElementById('input-row');
-    const output   = document.getElementById('output');
-    if (inputRow) inputRow.style.bottom = safeBottom + 'px';
-    if (output)   output.style.bottom   = (56 + safeBottom) + 'px';
-  }
-  window.visualViewport.addEventListener('resize', onVVResize);
-  window.visualViewport.addEventListener('scroll', onVVResize);
-}
+// Prevent body scroll on iOS
+document.addEventListener('touchmove', function(e) {
+  if (e.target.closest('#output')) return;
+  e.preventDefault();
+}, { passive: false });
 </script>
 </head>
 <body>
