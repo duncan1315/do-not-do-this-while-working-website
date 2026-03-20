@@ -322,9 +322,6 @@ async def bj_bet(cfg, shoe, fresh):
         if can_rep: ui_print(f"  [Enter] repeat last bet ({last})")
         ui_print(f"  Or type {minb}-{chips}")
         div("=")
-        _bb=[]
-        if can_rep: _bb.append(("Last Bet",""))
-        set_btns(_bb)
         raw = await ui_input("  > ")
         if raw=="" and can_rep: ls_set("bj_last",last); return last
         if raw=="0" and can_rep: ls_set("bj_last",last); return last
@@ -598,10 +595,6 @@ async def vp_bet(cfg):
         div()
         if can_rep: ui_print(f"  [Enter] repeat last bet ({last})")
         ui_print("  [P]  View paytable"); ui_print(f"  Or type {minb}-{chips}"); div("=")
-        _bb=[]
-        if can_rep: _bb.append(("Last Bet",""))
-        _bb.append(("Paytable","p"))
-        set_btns(_bb)
         raw=await ui_input("  > ")
         if raw=="" and can_rep: ls_set("vp_last",last); return last,False
         if raw=="0" and can_rep: ls_set("vp_last",last); return last,False
@@ -740,10 +733,6 @@ async def sl_bet(cfg):
         div()
         if can_rep: ui_print(f"  [Enter] repeat last bet ({last})")
         ui_print("  [P]  View paytable"); ui_print(f"  Or type {minb}-{maxb}"); div("=")
-        _bb=[]
-        if can_rep: _bb.append(("Last Bet",""))
-        _bb.append(("Paytable","p"))
-        set_btns(_bb)
         raw=await ui_input("  > ")
         if raw=="" and can_rep: ls_set("sl_last",last); return last,False
         if raw=="0" and can_rep: ls_set("sl_last",last); return last,False
