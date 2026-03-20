@@ -390,7 +390,6 @@ async def bj_round(cfg, shoe, fresh):
         div("*"); [ui_print(f"  {m}") for m in msgs]; div("*")
         ui_print(f"  Chips:{chips}"); div("=")
         cfg["bj_chips"]=str(chips); bj_save(cfg)
-        set_btns([("Continue","")])
         await ui_input("  [Enter] to continue...")
         return True,shoe,cut
     hands=[[ps,bet,"active",False]]; nsplit=0; idx=0
@@ -455,7 +454,6 @@ async def bj_round(cfg, shoe, fresh):
         ui_print(f"  {tag}"); ui_print(f"  {det}")
     div("*"); ui_print(f"  Chips:{chips}"); div("=")
     cfg["bj_chips"]=str(chips); bj_save(cfg)
-    set_btns([("Continue","")])
     await ui_input("  [Enter] to continue...")
     if chips<minb: return False,shoe,cut
     return True,shoe,cut
@@ -479,12 +477,10 @@ async def bj_main():
     if ch.lower()=="r":
         ls_set("bj_chips", BJ_DEF["bj_chips"]); cfg=bj_cfg()
         ui_clear(); div("="); ui_print(f"  Chips restored to {cfg['bj_chips']}."); div("=")
-        set_btns([("Continue","")])
         await ui_input("  [Enter]...")
     elif ch.lower()=="d":
         bj_reset(); cfg=bj_cfg()
         ui_clear(); div("="); ui_print("  Reset. Chips: 300."); div("=")
-        set_btns([("Continue","")])
         await ui_input("  [Enter]...")
     nd=int(cfg["bj_decks"]); shoe=bj_shoe(nd); fresh=True
     while True:
@@ -492,8 +488,7 @@ async def bj_main():
         if cut:
             shoe=bj_shoe(nd); fresh=True
             ui_clear(); div("="); ui_print("  New shoe."); div("=")
-            set_btns([("Continue","")])
-            await ui_input("  [Enter]...")
+                await ui_input("  [Enter]...")
         if not ok: break
     ui_clear(); div("="); ui_print(f"  Session ended. Chips:{cfg['bj_chips']}"); div("=")
 
@@ -613,7 +608,7 @@ async def vp_round(cfg):
     if chips<minb: ui_clear(); ui_print("  Not enough chips."); return False
     while True:
         bet,sp=await vp_bet(cfg)
-        if sp: vp_paytable(cfg); set_btns([("Continue","")]); await ui_input("  [Enter]..."); continue
+        if sp: vp_paytable(cfg); await ui_input("  [Enter]..."); continue
         break
     chips-=bet; deck=vp_deck(); hand=[deck.pop() for _ in range(5)]; held=set()
     while True:
@@ -630,8 +625,7 @@ async def vp_round(cfg):
         elif raw.lower()=="f":
             vp_render(hand,held,chips,bet,"result",["FOLD",f"-{bet}",f"Chips:{chips}"])
             cfg["vp_chips"]=str(chips); vp_save(cfg)
-            set_btns([("Continue","")])
-            await ui_input("  [Enter]..."); return chips>=minb
+                await ui_input("  [Enter]..."); return chips>=minb
         else: ui_print("  Invalid.")
     for i in range(5):
         if i not in held: hand[i]=deck.pop()
@@ -643,7 +637,6 @@ async def vp_round(cfg):
         msgs=["No winning hand",f"LOSE  -{bet}",f"Chips:{chips}"]
     vp_render(hand,held,chips,bet,"result",msgs)
     cfg["vp_chips"]=str(chips); vp_save(cfg)
-    set_btns([("Continue","")])
     await ui_input("  [Enter]..."); return chips>=minb
 
 async def vp_main():
@@ -658,7 +651,6 @@ async def vp_main():
     if ch.lower()=="r":
         vp_reset(); cfg=vp_cfg()
         ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
-        set_btns([("Continue","")])
         await ui_input("  [Enter]...")
     while True:
         ok=await vp_round(cfg)
@@ -751,7 +743,7 @@ async def sl_round(cfg):
     if chips<minb: ui_clear(); ui_print("  Not enough chips."); return False
     while True:
         bet,sp=await sl_bet(cfg)
-        if sp: sl_paytable(cfg); set_btns([("Continue","")]); await ui_input("  [Enter]..."); continue
+        if sp: sl_paytable(cfg); await ui_input("  [Enter]..."); continue
         break
     chips-=bet
     sl_render([],chips,bet,spin=True)
@@ -761,7 +753,6 @@ async def sl_round(cfg):
     if m>0: chips+=m*bet
     sl_render(reels,chips,bet,res=(m,lbl))
     cfg["sl_chips"]=str(chips); sl_save(cfg)
-    set_btns([("Continue","")])
     await ui_input("  [Enter]..."); return chips>=minb
 
 async def sl_main():
@@ -776,7 +767,6 @@ async def sl_main():
     if ch.lower()=="r":
         sl_reset(); cfg=sl_cfg()
         ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
-        set_btns([("Continue","")])
         await ui_input("  [Enter]...")
     while True:
         ok=await sl_round(cfg)
