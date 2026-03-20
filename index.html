@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Casino</title>
+<link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+<script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #111;
+  color: #d0d0d0;
+  font-family: 'Courier New', Courier, monospace;
+}
+#output {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  bottom: 56px;
+  white-space: pre;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  overflow-y: auto;
+  background: #0a0a0a;
+  word-break: break-all;
+  -webkit-overflow-scrolling: touch;
+}
+#input-row {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 56px;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+}
+#game-input {
+  flex: 1;
+  background: #0a0a0a;
+  color: #d0d0d0;
+  border: 1px solid #444;
+  padding: 10px 12px;
+  font-family: monospace;
+  font-size: 16px;
+  border-radius: 4px;
+  -webkit-appearance: none;
+}
+#game-input:focus { outline: none; border-color: #777; }
+#send-btn {
+  background: #2a2a2a;
+  color: #d0d0d0;
+  border: 1px solid #444;
+  padding: 10px 18px;
+  font-family: monospace;
+  font-size: 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+#send-btn:active { background: #444; }
+#loading {
+  position: fixed; inset: 0;
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  font-family: monospace;
+  color: #888;
+  font-size: 14px;
+  z-index: 99;
+}
+</style>
+<script>
+// Keep input row above iOS keyboard using visualViewport
+if (window.visualViewport) {
+  function onVVResize() {
+    const vv = window.visualViewport;
+    const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
+    const safeBottom = Math.max(0, keyboardHeight);
+    const inputRow = document.getElementById('input-row');
+    const output   = document.getElementById('output');
+    if (inputRow) inputRow.style.bottom = safeBottom + 'px';
+    if (output)   output.style.bottom   = (56 + safeBottom) + 'px';
+  }
+  window.visualViewport.addEventListener('resize', onVVResize);
+  window.visualViewport.addEventListener('scroll', onVVResize);
+}
+</script>
+</head>
+<body>
+<div id="loading">
+  <div>Loading Casino...</div>
+  <div style="font-size:12px;color:#555">Downloading Python runtime (~10MB, first load only)</div>
+</div>
+<div id="output"></div>
+<div id="input-row">
+  <input id="game-input" type="text" autocomplete="off" autocorrect="off"
+         autocapitalize="off" spellcheck="false" inputmode="text">
+  <button id="send-btn">Send</button>
+</div>
+
+<script type="py" async>
+import asyncio
+import random
+from pyscript import document, window
+from pyodide.ffi import create_proxy
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+_out   = document.querySelector("#output")
+_inp   = document.querySelector("#game-input")
+_btn   = document.querySelector("#send-btn")
+_fut   = None
+
+def ui_print(*args, end="\n"):
+    _out.textContent += " ".join(str(a) for a in args) + end
+    _out.scrollTop = _out.scrollHeight
+
+def ui_clear():
+    _out.textContent = ""
+
+async def ui_input(prompt=""):
+    global _fut
+    if prompt:
+        ui_print(prompt, end="")
+    loop = asyncio.get_event_loop()
+    _fut = loop.create_future()
+    _inp.value = ""
+    _inp.focus()
+    val = await _fut
+    _fut = None
+    ui_print(val)
+    return val.strip()
+
+def _submit(_e=None):
+    global _fut
+    if _fut and not _fut.done():
+        _fut.set_result(_inp.value)
+
+_btn.addEventListener("click",    create_proxy(_submit))
+_inp.addEventListener("keydown",  create_proxy(lambda e: _submit() if e.key == "Enter" else None))
+
+# ── localStorage ──────────────────────────────────────────────────────────────
+def ls_get(key, default=""):
+    v = window.localStorage.getItem(key)
+    return str(v) if v is not None else default
+
+def ls_set(key, val):
+    window.localStorage.setItem(key, str(val))
+
+# ── shared ────────────────────────────────────────────────────────────────────
+W = 52
+
+def div(char="-"):
+    ui_print(char * W)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  BLACKJACK
+# ═══════════════════════════════════════════════════════════════════════════════
+BJ_SUITS  = ["S","H","D","C"]
+BJ_RANKS  = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"]
+BJ_CUT    = ("CUT","")
+BJ_DEF    = {
+    "bj_decks":"6", "bj_h17":"true", "bj_chips":"300",
+    "bj_das":"true", "bj_surr":"false", "bj_pay":"1.5",
+    "bj_minbet":"10", "bj_totals":"true",
+}
+
+def bj_cfg():
+    return {k: ls_get(k, v) for k, v in BJ_DEF.items()}
+
+def bj_save(c):
+    for k, v in c.items(): ls_set(k, v)
+
+def bj_reset():
+    for k, v in BJ_DEF.items(): ls_set(k, v)
+
+def bj_rv(r):
+    if r in ("J","Q","K"): return 10
+    if r == "A": return 11
+    return int(r)
+
+def bj_total(h):
+    t = sum(bj_rv(r) for r,_ in h)
+    a = sum(1 for r,_ in h if r=="A")
+    while t > 21 and a: t -= 10; a -= 1
+    return t
+
+def bj_soft(h):
+    t = sum(bj_rv(r) for r,_ in h)
+    a = sum(1 for r,_ in h if r=="A")
+    while t > 21 and a: t -= 10; a -= 1
+    return a > 0
+
+def bj_bj(h): return len(h)==2 and bj_total(h)==21
+
+def bj_cs(c): return f"{c[0]}{c[1]}"
+
+def bj_hand_s(h, hide=False):
+    if hide and len(h)>=2: return f"{bj_cs(h[0])}  ??"
+    return "  ".join(bj_cs(c) for c in h)
+
+def bj_tstr(h, show, hide=False, dealer_vis=False):
+    if not show: return ""
+    if dealer_vis:
+        rv = bj_rv(h[0][0])
+        return str(rv) if rv!=11 else "1/11"
+    if hide: return "?"
+    t = bj_total(h)
+    if any(r=="A" for r,_ in h) and t<=21 and bj_soft(h):
+        hard = t-10
+        if hard>=1 and hard!=t: return f"{hard}/{t}"
+    return str(t)
+
+def bj_shoe(n):
+    s = [(r,su) for su in BJ_SUITS for r in BJ_RANKS]*n
+    random.shuffle(s)
+    cp = random.randint(int(len(s)*.65), int(len(s)*.80))
+    s.insert(cp, BJ_CUT)
+    return s
+
+def bj_draw(shoe):
+    c = shoe.pop(0)
+    if c == BJ_CUT: c = shoe.pop(0); return c, True
+    return c, False
+
+def bj_render(dh, hands, ai, hide, chips, bet, show, msgs=None):
+    ui_clear(); div("=")
+    ui_print(f"  Chips: {chips:<8}  Bet: {bet}")
+    div("=")
+    dt = bj_tstr(dh, show, hide=hide, dealer_vis=hide)
+    dp = f"  [{dt}]" if dt else ""
+    ui_print(f"  DEALER{dp}")
+    ui_print(f"    {bj_hand_s(dh, hide)}")
+    div()
+    if len(hands)==1:
+        hd,hb,st,_ = hands[0]
+        sfx = f"  (bet:{hb})" if hb!=bet else ""
+        tl = bj_tstr(hd, show); tp = f"  [{tl}]" if tl else ""
+        ui_print(f"  YOUR HAND{tp}{sfx}")
+        ui_print(f"    {bj_hand_s(hd)}")
+    else:
+        for i,(hd,hb,st,_) in enumerate(hands):
+            mk = ">>>" if i==ai else "   "
+            stag = f"  [{st.upper()}]" if st!="active" else ""
+            tl = bj_tstr(hd, show); tp = f"  [{tl}]" if tl else ""
+            ui_print(f"  {mk} HAND {i+1}{tp}  bet:{hb}{stag}")
+            ui_print(f"        {bj_hand_s(hd)}")
+    div("=")
+    if msgs:
+        for m in msgs: ui_print(f"  {m}")
+        div()
+
+async def bj_bet(cfg, shoe, fresh):
+    chips   = int(cfg["bj_chips"])
+    minb    = int(cfg["bj_minbet"])
+    pre     = [minb, minb*2, minb*5, minb*10, minb*20]
+    valid   = [a for a in pre if minb<=a<=chips]
+    last    = int(ls_get("bj_last", str(minb)))
+    can_rep = minb<=last<=chips
+    while True:
+        ui_clear(); div("="); ui_print("  PLACE YOUR BET"); div("=")
+        sc = len([c for c in shoe if c!=BJ_CUT])
+        ft = "  *** NEW SHOE ***" if fresh else ""
+        ui_print(f"  Chips:{chips}  Min:{minb}")
+        ui_print(f"  Cards in shoe:{sc}{ft}")
+        div()
+        ui_print("  Quick bet:")
+        if can_rep: ui_print(f"    [0]  {last}  (last bet)")
+        for i,a in enumerate(valid): ui_print(f"    [{i+1}]  {a}")
+        div()
+        if can_rep: ui_print(f"  [Enter] repeat last bet ({last})")
+        ui_print(f"  Or type {minb}-{chips}")
+        div("=")
+        raw = await ui_input("  > ")
+        if raw=="" and can_rep: ls_set("bj_last",last); return last
+        if raw=="0" and can_rep: ls_set("bj_last",last); return last
+        if raw.isdigit() and 1<=int(raw)<=len(valid):
+            v=valid[int(raw)-1]
+            if v<=chips: ls_set("bj_last",v); return v
+            ui_print("  Not enough chips."); continue
+        try:
+            v=int(raw)
+            if minb<=v<=chips: ls_set("bj_last",v); return v
+            ui_print(f"  Enter {minb}-{chips}.")
+        except ValueError: ui_print("  Invalid.")
+
+async def bj_action(hand, bet, chips, das, surr, fsplit, nsplit):
+    ft = len(hand)==2
+    can_d = ft and chips>=bet and (not fsplit or das)
+    can_p = ft and bj_rv(hand[0][0])==bj_rv(hand[1][0]) and chips>=bet and nsplit<3
+    can_s = surr and ft and not fsplit
+    opts = [("1","h","Hit"),("2","s","Stand")]
+    if can_d: opts.append(("3","d","Double"))
+    if can_p: opts.append(("4","p","Split"))
+    if can_s: opts.append(("5","u","Surrender"))
+    km = {n:a for n,a,_ in opts}
+    ui_print("  "+"  ".join(f"[{n}] {l}" for n,_,l in opts))
+    div("=")
+    while True:
+        c = await ui_input("  > ")
+        if c in km: return km[c]
+        ui_print("  Invalid.")
+
+async def bj_dealer(dh, shoe, h17, chips, bet, hands, show):
+    cut=False
+    while True:
+        t=bj_total(dh)
+        if not(t<17 or (t==17 and bj_soft(dh) and h17)): break
+        c,ct=bj_draw(shoe); cut=cut or ct; dh.append(c)
+        bj_render(dh,hands,-1,False,chips,bet,show)
+    return cut
+
+async def bj_round(cfg, shoe, fresh):
+    chips  = int(cfg["bj_chips"])
+    h17    = cfg["bj_h17"]=="true"
+    das    = cfg["bj_das"]=="true"
+    surr   = cfg["bj_surr"]=="true"
+    pay    = float(cfg["bj_pay"])
+    minb   = int(cfg["bj_minbet"])
+    show   = cfg["bj_totals"]=="true"
+    if chips<minb: ui_clear(); ui_print("  Not enough chips."); return False,shoe,False
+    bet = await bj_bet(cfg,shoe,fresh)
+    chips -= bet
+    cut=False
+    c1,t=bj_draw(shoe);cut=cut or t
+    c2,t=bj_draw(shoe);cut=cut or t
+    c3,t=bj_draw(shoe);cut=cut or t
+    c4,t=bj_draw(shoe);cut=cut or t
+    dh=[c1,c3]; ps=[c2,c4]
+    dbj=bj_bj(dh); pbj=bj_bj(ps)
+    if pbj or dbj:
+        msgs=[]
+        if pbj and dbj: chips+=bet; msgs.append("Both Blackjack -- Push.")
+        elif pbj:
+            w=int(bet*pay); chips+=bet+w
+            msgs.append(f"Blackjack! +{w}  ({'3:2' if pay>=1.5 else '6:5'})")
+        else: msgs.append("Dealer Blackjack. You lose.")
+        bj_render(dh,[[ps,bet,"active",False]],0,False,chips,bet,show)
+        div("*"); [ui_print(f"  {m}") for m in msgs]; div("*")
+        ui_print(f"  Chips:{chips}"); div("=")
+        cfg["bj_chips"]=str(chips); bj_save(cfg)
+        await ui_input("  [Enter] to continue...")
+        return True,shoe,cut
+    hands=[[ps,bet,"active",False]]; nsplit=0; idx=0
+    while idx<len(hands):
+        hand,hbet,status,fsplit=hands[idx]
+        while status=="active":
+            t=bj_total(hand)
+            if t>21: status="bust"; bj_render(dh,hands,idx,True,chips,bet,show,["Bust!"]); break
+            if t==21: status="stood"; break
+            bj_render(dh,hands,idx,True,chips,bet,show)
+            act=await bj_action(hand,hbet,chips,das,surr,fsplit,nsplit)
+            if act=="h":
+                c,ct=bj_draw(shoe);cut=cut or ct;hand.append(c)
+            elif act=="s": status="stood"
+            elif act=="d":
+                chips-=hbet; hbet*=2
+                c,ct=bj_draw(shoe);cut=cut or ct;hand.append(c)
+                t=bj_total(hand); status="bust" if t>21 else "stood"
+                hands[idx][1]=hbet
+                bj_render(dh,hands,idx,True,chips,bet,show,
+                           ["Bust!" if status=="bust" else f"Doubled. Bet:{hbet}"])
+                if status=="bust": break
+            elif act=="p":
+                chips-=hbet
+                c1c,c2c=hand[0],hand[1]
+                nc1,ct=bj_draw(shoe);cut=cut or ct
+                nc2,ct=bj_draw(shoe);cut=cut or ct
+                h1=[c1c,nc1];h2=[c2c,nc2]
+                hands[idx]=[h1,hbet,"active",True]
+                hands.insert(idx+1,[h2,hbet,"active",True]); nsplit+=1
+                if c1c[0]=="A":
+                    hands[idx][2]="stood";hands[idx+1][2]="stood"
+                    bj_render(dh,hands,idx,True,chips,bet,show,["Split Aces."]); status="stood"
+                else:
+                    hand,hbet,status,fsplit=hands[idx]
+                    bj_render(dh,hands,idx,True,chips,bet,show,["Split."])
+                continue
+            elif act=="u":
+                rf=hbet//2;chips+=rf;status="surrendered"
+                bj_render(dh,hands,idx,True,chips,bet,show,[f"Surrendered. +{rf}"])
+        hands[idx][2]=status; idx+=1
+    has_s=any(s=="stood" for _,_,s,_ in hands)
+    dt=0; db=False
+    if has_s:
+        bj_render(dh,hands,-1,False,chips,bet,show,["Dealer's turn..."])
+        ct=await bj_dealer(dh,shoe,h17,chips,bet,hands,show); cut=cut or ct
+        dt=bj_total(dh); db=dt>21
+    rl=[]
+    for i,(hand,hbet,status,_) in enumerate(hands):
+        pt=bj_total(hand); lbl=f"Hand {i+1}" if len(hands)>1 else "Your hand"
+        if status=="surrendered": tag,det="SURRENDER",f"-{hbet//2}"
+        elif status=="bust": tag,det="BUST",f"-{hbet}"
+        elif db: chips+=hbet*2; tag,det="WIN",f"+{hbet} (dealer bust)"
+        elif pt>dt: chips+=hbet*2; tag,det="WIN",f"+{hbet} [{pt} vs {dt}]"
+        elif pt==dt: chips+=hbet; tag,det="PUSH",f"[{pt}]"
+        else: tag,det="LOSE",f"-{hbet} [{pt} vs {dt}]"
+        rl.append((lbl,tag,det))
+    bj_render(dh,hands,-1,False,chips,bet,show)
+    for lbl,tag,det in rl:
+        div("*")
+        if len(rl)>1: ui_print(f"  {lbl}")
+        ui_print(f"  {tag}"); ui_print(f"  {det}")
+    div("*"); ui_print(f"  Chips:{chips}"); div("=")
+    cfg["bj_chips"]=str(chips); bj_save(cfg)
+    await ui_input("  [Enter] to continue...")
+    if chips<minb: return False,shoe,cut
+    return True,shoe,cut
+
+async def bj_main():
+    cfg=bj_cfg()
+    pay=float(cfg["bj_pay"]); rule="H17" if cfg["bj_h17"]=="true" else "S17"
+    ui_clear(); div("="); ui_print("          B L A C K J A C K"); div("=")
+    ui_print(f"  Decks  : {cfg['bj_decks']}")
+    ui_print(f"  Rule   : {rule}")
+    ui_print(f"  Payout : {'3:2' if pay>=1.5 else '6:5'}")
+    ui_print(f"  DAS    : {'Yes' if cfg['bj_das']=='true' else 'No'}")
+    ui_print(f"  Surr   : {'Yes' if cfg['bj_surr']=='true' else 'No'}")
+    ui_print(f"  MinBet : {cfg['bj_minbet']}")
+    ui_print(f"  Totals : {'Yes' if cfg['bj_totals']=='true' else 'No'}")
+    ui_print(f"  Chips  : {cfg['bj_chips']}")
+    div()
+    ui_print("  [R] Reset   [Enter] Start"); div("=")
+    ch=await ui_input("  > ")
+    if ch.lower()=="r":
+        bj_reset(); cfg=bj_cfg()
+        ui_clear(); div("="); ui_print("  Reset. Chips: 300."); div("=")
+        await ui_input("  [Enter]...")
+    nd=int(cfg["bj_decks"]); shoe=bj_shoe(nd); fresh=True
+    while True:
+        ok,shoe,cut=await bj_round(cfg,shoe,fresh); fresh=False
+        if cut:
+            shoe=bj_shoe(nd); fresh=True
+            ui_clear(); div("="); ui_print("  New shoe."); div("=")
+            await ui_input("  [Enter]...")
+        if not ok: break
+    ui_clear(); div("="); ui_print(f"  Session ended. Chips:{cfg['bj_chips']}"); div("=")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  VIDEO POKER
+# ═══════════════════════════════════════════════════════════════════════════════
+VP_SUITS = ["S","H","D","C"]
+VP_RANKS = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"]
+VP_DEF   = {"vp_chips":"300","vp_minbet":"10","vp_pt":"jacks_or_better","vp_show":"true"}
+VP_PTS   = {
+    "jacks_or_better": {"Royal Flush":800,"Straight Flush":50,"Four of a Kind":25,
+        "Full House":9,"Flush":6,"Straight":4,"Three of a Kind":3,"Two Pair":2,"Jacks or Better":1},
+    "bonus_poker":     {"Royal Flush":800,"Straight Flush":50,"Four Aces":80,
+        "Four 2-4":40,"Four 5-K":25,"Full House":8,"Flush":5,"Straight":4,
+        "Three of a Kind":3,"Two Pair":2,"Jacks or Better":1},
+}
+
+def vp_cfg():  return {k:ls_get(k,v) for k,v in VP_DEF.items()}
+def vp_save(c): [ls_set(k,v) for k,v in c.items()]
+def vp_reset(): [ls_set(k,v) for k,v in VP_DEF.items()]
+
+def vp_deck():
+    d=[(r,s) for s in VP_SUITS for r in VP_RANKS]; random.shuffle(d); return d
+
+def vp_cs(c): return f"{c[0]}{c[1]}"
+def vp_ri(r): return VP_RANKS.index(r)
+
+def vp_eval(hand, pt):
+    ranks=[r for r,_ in hand]; suits=[s for _,s in hand]
+    idxs=sorted([vp_ri(r) for r in ranks])
+    counts={}
+    for r in ranks: counts[r]=counts.get(r,0)+1
+    freq=sorted(counts.values(),reverse=True)
+    fl=len(set(suits))==1
+    st=len(set(idxs))==5 and idxs[-1]-idxs[0]==4
+    if set(ranks)=={"A","2","3","4","5"}: st=True
+    roy=fl and st and set(ranks)=={"10","J","Q","K","A"}
+    if pt=="bonus_poker":
+        if roy: return "Royal Flush"
+        if st and fl: return "Straight Flush"
+        if freq[0]==4:
+            qr=[r for r,c in counts.items() if c==4][0]
+            if qr=="A": return "Four Aces"
+            if qr in ("2","3","4"): return "Four 2-4"
+            return "Four 5-K"
+        if freq==[3,2]: return "Full House"
+        if fl: return "Flush"
+        if st: return "Straight"
+        if freq[0]==3: return "Three of a Kind"
+        if freq[:2]==[2,2]: return "Two Pair"
+        if freq[0]==2:
+            pr=[r for r,c in counts.items() if c==2][0]
+            if pr in ("J","Q","K","A"): return "Jacks or Better"
+        return None
+    if roy: return "Royal Flush"
+    if st and fl: return "Straight Flush"
+    if freq[0]==4: return "Four of a Kind"
+    if freq==[3,2]: return "Full House"
+    if fl: return "Flush"
+    if st: return "Straight"
+    if freq[0]==3: return "Three of a Kind"
+    if freq[:2]==[2,2]: return "Two Pair"
+    if freq[0]==2:
+        pr=[r for r,c in counts.items() if c==2][0]
+        if pr in ("J","Q","K","A"): return "Jacks or Better"
+    return None
+
+def vp_render(hand, held, chips, bet, phase, msgs=None):
+    ui_clear(); div("="); ui_print("  V I D E O  P O K E R"); div("=")
+    ui_print(f"  Chips:{chips:<8}  Bet:{bet}"); div()
+    cl="    ".join(f"  {vp_cs(c):>4}  " for c in hand)
+    ui_print(f"  {cl}")
+    if phase=="hold":
+        hl="    ".join(f" {'HOLD' if i in held else '    ':>4} " for i in range(5))
+        nl="    ".join(f"  [{i+1}]  " for i in range(5))
+        ui_print(f"  {hl}"); ui_print(f"  {nl}")
+    else:
+        ui_print("  "+"    ".join(f"  [{i+1}]  " for i in range(5)))
+    div()
+    if msgs: [ui_print(f"  {m}") for m in msgs]
+    div("=")
+
+def vp_paytable(cfg):
+    b=int(ls_get("vp_last",cfg["vp_minbet"])); c=int(cfg["vp_chips"]); pt=cfg["vp_pt"]
+    ui_clear(); div("="); ui_print(f"  PAYTABLE [{pt.replace('_',' ').title()}]"); div("=")
+    for n,m in VP_PTS[pt].items(): ui_print(f"  {n:<20} {m:>4}x  pays {m*b}")
+    div("="); ui_print(f"  Chips:{c}  Bet:{b}"); div("=")
+
+async def vp_bet(cfg):
+    chips=int(cfg["vp_chips"]); minb=int(cfg["vp_minbet"])
+    pre=[minb,minb*2,minb*5,minb*10,minb*20]; valid=[a for a in pre if a<=chips]
+    last=int(ls_get("vp_last",str(minb))); can_rep=minb<=last<=chips
+    while True:
+        ui_clear(); div("="); ui_print("  PLACE YOUR BET"); div("=")
+        ui_print(f"  Chips:{chips}  Min:{minb}"); div()
+        ui_print("  Quick bet:")
+        if can_rep: ui_print(f"    [0]  {last}  (last bet)")
+        for i,a in enumerate(valid): ui_print(f"    [{i+1}]  {a}")
+        div()
+        if can_rep: ui_print(f"  [Enter] repeat last bet ({last})")
+        ui_print("  [P]  View paytable"); ui_print(f"  Or type {minb}-{chips}"); div("=")
+        raw=await ui_input("  > ")
+        if raw=="" and can_rep: ls_set("vp_last",last); return last,False
+        if raw=="0" and can_rep: ls_set("vp_last",last); return last,False
+        if raw.lower()=="p": return None,True
+        if raw.isdigit() and 1<=int(raw)<=len(valid):
+            v=valid[int(raw)-1]
+            if v<=chips: ls_set("vp_last",v); return v,False
+        try:
+            v=int(raw)
+            if minb<=v<=chips: ls_set("vp_last",v); return v,False
+            ui_print(f"  Enter {minb}-{chips}.")
+        except ValueError: ui_print("  Invalid.")
+
+async def vp_round(cfg):
+    chips=int(cfg["vp_chips"]); minb=int(cfg["vp_minbet"]); pt=cfg["vp_pt"]
+    if chips<minb: ui_clear(); ui_print("  Not enough chips."); return False
+    while True:
+        bet,sp=await vp_bet(cfg)
+        if sp: vp_paytable(cfg); await ui_input("  [Enter]..."); continue
+        break
+    chips-=bet; deck=vp_deck(); hand=[deck.pop() for _ in range(5)]; held=set()
+    while True:
+        vp_render(hand,held,chips,bet,"hold")
+        ui_print("  [1]-[5] toggle hold  [H] hold all  [D] draw  [F] fold"); div("=")
+        raw=await ui_input("  > ")
+        if raw in ("1","2","3","4","5"):
+            i=int(raw)-1
+            if i in held: held.remove(i)
+            else: held.add(i)
+        elif raw.lower()=="h": held=set(range(5))
+        elif raw.lower()=="d": break
+        elif raw.lower()=="f":
+            vp_render(hand,held,chips,bet,"result",["FOLD",f"-{bet}",f"Chips:{chips}"])
+            cfg["vp_chips"]=str(chips); vp_save(cfg)
+            await ui_input("  [Enter]..."); return chips>=minb
+        else: ui_print("  Invalid.")
+    for i in range(5):
+        if i not in held: hand[i]=deck.pop()
+    rank=vp_eval(hand,pt)
+    if rank and rank in VP_PTS[pt]:
+        m=VP_PTS[pt][rank]; w=bet*m; chips+=w
+        msgs=[rank,f"WIN  +{w}  ({m}x)",f"Chips:{chips}"]
+    else:
+        msgs=["No winning hand",f"LOSE  -{bet}",f"Chips:{chips}"]
+    vp_render(hand,held,chips,bet,"result",msgs)
+    cfg["vp_chips"]=str(chips); vp_save(cfg)
+    await ui_input("  [Enter]..."); return chips>=minb
+
+async def vp_main():
+    cfg=vp_cfg()
+    ui_clear(); div("="); ui_print("        V I D E O  P O K E R"); div("=")
+    ui_print(f"  Paytable : {cfg['vp_pt'].replace('_',' ').title()}")
+    ui_print(f"  Min bet  : {cfg['vp_minbet']}")
+    ui_print(f"  Chips    : {cfg['vp_chips']}")
+    div(); ui_print("  [R] Reset   [Enter] Start"); div("=")
+    ch=await ui_input("  > ")
+    if ch.lower()=="r":
+        vp_reset(); cfg=vp_cfg()
+        ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
+        await ui_input("  [Enter]...")
+    while True:
+        ok=await vp_round(cfg)
+        if not ok: break
+    ui_clear(); div("="); ui_print(f"  Session ended. Chips:{cfg['vp_chips']}"); div("=")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SLOTS
+# ═══════════════════════════════════════════════════════════════════════════════
+SL_SYM = ["CHERRY","BELL","1BAR","2BAR","3BAR","SEVEN"]
+SL_WGT = [30,20,15,12,8,5]
+SL_PAY = [
+    ("SEVEN","SEVEN","SEVEN",250),("3BAR","3BAR","3BAR",100),
+    ("2BAR","2BAR","2BAR",50),("1BAR","1BAR","1BAR",25),
+    ("BELL","BELL","BELL",18),("*BAR","*BAR","*BAR",10),
+    ("CHERRY","CHERRY","CHERRY",8),("CHERRY","CHERRY","*",4),("CHERRY","*","*",2),
+]
+SL_DEF = {"sl_chips":"300","sl_minbet":"10","sl_maxbet":"100"}
+
+def sl_cfg():  return {k:ls_get(k,v) for k,v in SL_DEF.items()}
+def sl_save(c): [ls_set(k,v) for k,v in c.items()]
+def sl_reset(): [ls_set(k,v) for k,v in SL_DEF.items()]
+
+def sl_spin(): return random.choices(SL_SYM,weights=SL_WGT,k=1)[0]
+
+def sl_eval(r):
+    r1,r2,r3=r
+    def ib(s): return s in("1BAR","2BAR","3BAR")
+    for s1,s2,s3,m in SL_PAY:
+        if ((s1=="*")or(s1=="*BAR"and ib(r1))or s1==r1) and \
+           ((s2=="*")or(s2=="*BAR"and ib(r2))or s2==r2) and \
+           ((s3=="*")or(s3=="*BAR"and ib(r3))or s3==r3):
+            return m,f"{r1}  {r2}  {r3}"
+    return 0,None
+
+def sl_render(reels, chips, bet, spin=False, res=None):
+    ui_clear(); div("="); ui_print("  S L O T  M A C H I N E"); div("=")
+    ui_print(f"  Chips:{chips:<8}  Bet:{bet}"); div()
+    d=["  ???   ","  ???   ","  ???   "] if spin else [f"{s:^8}" for s in reels]
+    b="+----------+"
+    ui_print(f"  {b}   {b}   {b}")
+    ui_print(f"  | {d[0]} |   | {d[1]} |   | {d[2]} |")
+    ui_print(f"  {b}   {b}   {b}")
+    div()
+    if res:
+        m,lbl=res; div("*")
+        if m>0: ui_print(f"  {lbl}"); ui_print(f"  WIN  +{m*bet}  ({m}x)")
+        else:   ui_print("  No match"); ui_print(f"  LOSE  -{bet}")
+        div("*"); ui_print(f"  Chips:{chips}")
+    div("=")
+
+def sl_paytable(cfg):
+    b=int(ls_get("sl_last",cfg["sl_minbet"])); c=int(cfg["sl_chips"])
+    ui_clear(); div("="); ui_print("  PAYTABLE"); div("=")
+    for s1,s2,s3,m in SL_PAY:
+        c1="Any BAR" if s1=="*BAR" else("Any" if s1=="*" else s1)
+        c2="Any BAR" if s2=="*BAR" else("Any" if s2=="*" else s2)
+        c3="Any BAR" if s3=="*BAR" else("Any" if s3=="*" else s3)
+        ui_print(f"  {c1:<8} {c2:<8} {c3:<8}  {m:>4}x  pays {m*b}")
+    div("="); ui_print(f"  Chips:{c}  Bet:{b}"); div("=")
+
+async def sl_bet(cfg):
+    chips=int(cfg["sl_chips"]); minb=int(cfg["sl_minbet"]); maxb=min(int(cfg["sl_maxbet"]),chips)
+    pre=[minb,minb*2,minb*5,minb*10]; valid=[a for a in pre if a<=maxb]
+    last=int(ls_get("sl_last",str(minb))); can_rep=minb<=last<=maxb
+    while True:
+        ui_clear(); div("="); ui_print("  PLACE YOUR BET"); div("=")
+        ui_print(f"  Chips:{chips}  Min:{minb}  Max:{maxb}"); div()
+        ui_print("  Quick bet:")
+        if can_rep: ui_print(f"    [0]  {last}  (last bet)")
+        for i,a in enumerate(valid): ui_print(f"    [{i+1}]  {a}")
+        div()
+        if can_rep: ui_print(f"  [Enter] repeat last bet ({last})")
+        ui_print("  [P]  View paytable"); ui_print(f"  Or type {minb}-{maxb}"); div("=")
+        raw=await ui_input("  > ")
+        if raw=="" and can_rep: ls_set("sl_last",last); return last,False
+        if raw=="0" and can_rep: ls_set("sl_last",last); return last,False
+        if raw.lower()=="p": return None,True
+        if raw.isdigit() and 1<=int(raw)<=len(valid):
+            v=valid[int(raw)-1]
+            if v<=maxb: ls_set("sl_last",v); return v,False
+        try:
+            v=int(raw)
+            if minb<=v<=maxb: ls_set("sl_last",v); return v,False
+            ui_print(f"  Enter {minb}-{maxb}.")
+        except ValueError: ui_print("  Invalid.")
+
+async def sl_round(cfg):
+    chips=int(cfg["sl_chips"]); minb=int(cfg["sl_minbet"])
+    if chips<minb: ui_clear(); ui_print("  Not enough chips."); return False
+    while True:
+        bet,sp=await sl_bet(cfg)
+        if sp: sl_paytable(cfg); await ui_input("  [Enter]..."); continue
+        break
+    chips-=bet
+    sl_render([],chips,bet,spin=True)
+    await asyncio.sleep(0.5)
+    reels=[sl_spin(),sl_spin(),sl_spin()]
+    m,lbl=sl_eval(reels)
+    if m>0: chips+=m*bet
+    sl_render(reels,chips,bet,res=(m,lbl))
+    cfg["sl_chips"]=str(chips); sl_save(cfg)
+    await ui_input("  [Enter]..."); return chips>=minb
+
+async def sl_main():
+    cfg=sl_cfg()
+    ui_clear(); div("="); ui_print("        S L O T  M A C H I N E"); div("=")
+    ui_print(f"  Min bet : {cfg['sl_minbet']}")
+    ui_print(f"  Max bet : {cfg['sl_maxbet']}")
+    ui_print(f"  Chips   : {cfg['sl_chips']}")
+    div(); ui_print("  [R] Reset   [Enter] Start"); div("=")
+    ch=await ui_input("  > ")
+    if ch.lower()=="r":
+        sl_reset(); cfg=sl_cfg()
+        ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
+        await ui_input("  [Enter]...")
+    while True:
+        ok=await sl_round(cfg)
+        if not ok: break
+    ui_clear(); div("="); ui_print(f"  Session ended. Chips:{cfg['sl_chips']}"); div("=")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  MAIN MENU
+# ═══════════════════════════════════════════════════════════════════════════════
+GAMES = {"1":("Blackjack",bj_main),"2":("Video Poker",vp_main),"3":("Slots",sl_main)}
+
+async def main():
+    document.querySelector("#loading").style.display = "none"
+    while True:
+        ui_clear(); div("="); ui_print("          C A S I N O"); div("=")
+        ui_print(f"  [1] Blackjack     chips: {ls_get('bj_chips','300')}")
+        ui_print(f"  [2] Video Poker   chips: {ls_get('vp_chips','300')}")
+        ui_print(f"  [3] Slots         chips: {ls_get('sl_chips','300')}")
+        div(); ui_print("  [Q] Quit"); div("=")
+        ch=await ui_input("  > ")
+        if ch.lower()=="q":
+            ui_clear(); div("="); ui_print("  Thanks for playing."); div("="); break
+        if ch in GAMES: await GAMES[ch][1]()
+
+asyncio.ensure_future(main())
+</script>
+</body>
+</html>
