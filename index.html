@@ -488,7 +488,7 @@ async def bj_main():
         if cut:
             shoe=bj_shoe(nd); fresh=True
             ui_clear(); div("="); ui_print("  New shoe."); div("=")
-                await ui_input("  [Enter]...")
+            await ui_input("  [Enter]...")
         if not ok: break
     ui_clear(); div("="); ui_print(f"  Session ended. Chips:{cfg['bj_chips']}"); div("=")
 
@@ -625,7 +625,7 @@ async def vp_round(cfg):
         elif raw.lower()=="f":
             vp_render(hand,held,chips,bet,"result",["FOLD",f"-{bet}",f"Chips:{chips}"])
             cfg["vp_chips"]=str(chips); vp_save(cfg)
-                await ui_input("  [Enter]..."); return chips>=minb
+            await ui_input("  [Enter]..."); return chips>=minb
         else: ui_print("  Invalid.")
     for i in range(5):
         if i not in held: hand[i]=deck.pop()
