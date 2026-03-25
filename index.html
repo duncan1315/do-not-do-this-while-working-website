@@ -213,7 +213,7 @@ BJ_CUT    = ("CUT","")
 BJ_DEF    = {
     "bj_decks":"6", "bj_h17":"true", "bj_chips":"300",
     "bj_das":"true", "bj_surr":"false", "bj_pay":"1.5",
-    "bj_minbet":"10", "bj_totals":"true",
+    "bj_minbet":"10", "bj_totals":"true", "bj_csm":"false",
 }
 
 def bj_cfg():
@@ -469,6 +469,7 @@ async def bj_main():
     ui_print(f"  Surr   : {'Yes' if cfg['bj_surr']=='true' else 'No'}")
     ui_print(f"  MinBet : {cfg['bj_minbet']}")
     ui_print(f"  Totals : {'Yes' if cfg['bj_totals']=='true' else 'No'}")
+    ui_print(f"  CSM    : {'Yes' if cfg['bj_csm']=='true' else 'No'}")
     ui_print(f"  Chips  : {cfg['bj_chips']}")
     div()
     ui_print("  [R] Reset chips only   [D] Reset all   [Enter] Start"); div("=")
@@ -485,9 +486,12 @@ async def bj_main():
     nd=int(cfg["bj_decks"]); shoe=bj_shoe(nd); fresh=True
     while True:
         ok,shoe,cut=await bj_round(cfg,shoe,fresh); fresh=False
-        if cut:
+        if cfg["bj_csm"]=="true":
+            shoe=bj_shoe(nd); fresh=True
+        elif cut:
             shoe=bj_shoe(nd); fresh=True
             ui_clear(); div("="); ui_print("  New shoe."); div("=")
+            set_btns([("Continue","")])
             await ui_input("  [Enter]...")
         if not ok: break
     ui_clear(); div("="); ui_print(f"  Session ended. Chips:{cfg['bj_chips']}"); div("=")
