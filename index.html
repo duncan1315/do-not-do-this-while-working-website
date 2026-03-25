@@ -213,7 +213,7 @@ BJ_CUT    = ("CUT","")
 BJ_DEF    = {
     "bj_decks":"6", "bj_h17":"true", "bj_chips":"300",
     "bj_das":"true", "bj_surr":"false", "bj_pay":"1.5",
-    "bj_minbet":"10", "bj_totals":"true", "bj_csm":"false",
+    "bj_minbet":"10", "bj_totals":"true", "bj_csm":"true",
 }
 
 def bj_cfg():
@@ -458,31 +458,123 @@ async def bj_round(cfg, shoe, fresh):
     if chips<minb: return False,shoe,cut
     return True,shoe,cut
 
+
+async def _edit_setting(cfg, key, label, hint):
+    ui_print(f"  {label}  (hint: {hint})")
+    ui_print(f"  Current: {cfg[key]}")
+    div("=")
+    val = await ui_input("  New value: ")
+    if val.strip():
+        cfg[key] = val.strip().lower() if "true/false" in hint else val.strip()
+
+async def bj_config(cfg):
+    settings = [
+        ("bj_decks",  "Decks",       "1-8"),
+        ("bj_h17",    "Dealer H17",  "true/false"),
+        ("bj_das",    "DAS",         "true/false"),
+        ("bj_surr",   "Surrender",   "true/false"),
+        ("bj_pay",    "BJ Payout",   "1.5=3:2  1.2=6:5"),
+        ("bj_minbet", "Min Bet",     "number"),
+        ("bj_totals", "Show Totals", "true/false"),
+        ("bj_csm",    "CSM",         "true/false"),
+    ]
+    while True:
+        ui_clear(); div("="); ui_print("  BLACKJACK CONFIG"); div("=")
+        for i,(k,label,hint) in enumerate(settings):
+            ui_print(f"  [{i+1}] {label:<14}: {cfg[k]}")
+        div()
+        ui_print("  Type number to edit   [S] Save & back   [B] Back")
+        div("=")
+        set_btns([("Save","s"),("Back","b")])
+        raw = await ui_input("  > ")
+        if raw.lower()=="s":
+            bj_save(cfg); ui_clear(); div("="); ui_print("  Saved."); div("=")
+            await ui_input("  > "); return
+        if raw.lower()=="b": return
+        if raw.isdigit() and 1<=int(raw)<=len(settings):
+            i=int(raw)-1; k,label,hint=settings[i]
+            ui_clear(); div("="); ui_print(f"  Edit: {label}"); div("=")
+            await _edit_setting(cfg, k, label, hint)
+
+async def vp_config(cfg):
+    settings = [
+        ("vp_chips",   "Chips",     "number"),
+        ("vp_minbet",  "Min Bet",   "number"),
+        ("vp_pt",      "Paytable",  "jacks_or_better / bonus_poker"),
+        ("vp_show",    "Show Rank", "true/false"),
+    ]
+    while True:
+        ui_clear(); div("="); ui_print("  VIDEO POKER CONFIG"); div("=")
+        for i,(k,label,hint) in enumerate(settings):
+            ui_print(f"  [{i+1}] {label:<12}: {cfg[k]}")
+        div()
+        ui_print("  Type number to edit   [S] Save & back   [B] Back")
+        div("=")
+        set_btns([("Save","s"),("Back","b")])
+        raw = await ui_input("  > ")
+        if raw.lower()=="s":
+            vp_save(cfg); ui_clear(); div("="); ui_print("  Saved."); div("=")
+            await ui_input("  > "); return
+        if raw.lower()=="b": return
+        if raw.isdigit() and 1<=int(raw)<=len(settings):
+            i=int(raw)-1; k,label,hint=settings[i]
+            ui_clear(); div("="); ui_print(f"  Edit: {label}"); div("=")
+            await _edit_setting(cfg, k, label, hint)
+
+async def sl_config(cfg):
+    settings = [
+        ("sl_chips",  "Chips",   "number"),
+        ("sl_minbet", "Min Bet", "number"),
+        ("sl_maxbet", "Max Bet", "number"),
+    ]
+    while True:
+        ui_clear(); div("="); ui_print("  SLOTS CONFIG"); div("=")
+        for i,(k,label,hint) in enumerate(settings):
+            ui_print(f"  [{i+1}] {label:<10}: {cfg[k]}")
+        div()
+        ui_print("  Type number to edit   [S] Save & back   [B] Back")
+        div("=")
+        set_btns([("Save","s"),("Back","b")])
+        raw = await ui_input("  > ")
+        if raw.lower()=="s":
+            sl_save(cfg); ui_clear(); div("="); ui_print("  Saved."); div("=")
+            await ui_input("  > "); return
+        if raw.lower()=="b": return
+        if raw.isdigit() and 1<=int(raw)<=len(settings):
+            i=int(raw)-1; k,label,hint=settings[i]
+            ui_clear(); div("="); ui_print(f"  Edit: {label}"); div("=")
+            await _edit_setting(cfg, k, label, hint)
+
 async def bj_main():
     cfg=bj_cfg()
-    pay=float(cfg["bj_pay"]); rule="H17" if cfg["bj_h17"]=="true" else "S17"
-    ui_clear(); div("="); ui_print("          B L A C K J A C K"); div("=")
-    ui_print(f"  Decks  : {cfg['bj_decks']}")
-    ui_print(f"  Rule   : {rule}")
-    ui_print(f"  Payout : {'3:2' if pay>=1.5 else '6:5'}")
-    ui_print(f"  DAS    : {'Yes' if cfg['bj_das']=='true' else 'No'}")
-    ui_print(f"  Surr   : {'Yes' if cfg['bj_surr']=='true' else 'No'}")
-    ui_print(f"  MinBet : {cfg['bj_minbet']}")
-    ui_print(f"  Totals : {'Yes' if cfg['bj_totals']=='true' else 'No'}")
-    ui_print(f"  CSM    : {'Yes' if cfg['bj_csm']=='true' else 'No'}")
-    ui_print(f"  Chips  : {cfg['bj_chips']}")
-    div()
-    ui_print("  [R] Reset chips only   [D] Reset all   [Enter] Start"); div("=")
-    set_btns([("Reset Chips","r"),("Reset All","d"),("Start","")])
-    ch=await ui_input("  > ")
-    if ch.lower()=="r":
-        ls_set("bj_chips", BJ_DEF["bj_chips"]); cfg=bj_cfg()
-        ui_clear(); div("="); ui_print(f"  Chips restored to {cfg['bj_chips']}."); div("=")
-        await ui_input("  [Enter]...")
-    elif ch.lower()=="d":
-        bj_reset(); cfg=bj_cfg()
-        ui_clear(); div("="); ui_print("  Reset. Chips: 300."); div("=")
-        await ui_input("  [Enter]...")
+    while True:
+        pay=float(cfg["bj_pay"]); rule="H17" if cfg["bj_h17"]=="true" else "S17"
+        ui_clear(); div("="); ui_print("          B L A C K J A C K"); div("=")
+        ui_print(f"  Decks  : {cfg['bj_decks']}")
+        ui_print(f"  Rule   : {rule}")
+        ui_print(f"  Payout : {'3:2' if pay>=1.5 else '6:5'}")
+        ui_print(f"  DAS    : {'Yes' if cfg['bj_das']=='true' else 'No'}")
+        ui_print(f"  Surr   : {'Yes' if cfg['bj_surr']=='true' else 'No'}")
+        ui_print(f"  MinBet : {cfg['bj_minbet']}")
+        ui_print(f"  Totals : {'Yes' if cfg['bj_totals']=='true' else 'No'}")
+        ui_print(f"  CSM    : {'Yes' if cfg['bj_csm']=='true' else 'No'}")
+        ui_print(f"  Chips  : {cfg['bj_chips']}")
+        div()
+        ui_print("  [R] Reset chips   [D] Reset all   [C] Config   [Enter] Start"); div("=")
+        set_btns([("Reset Chips","r"),("Reset All","d"),("Config","c"),("Start","")])
+        ch=await ui_input("  > ")
+        if ch.lower()=="r":
+            ls_set("bj_chips", BJ_DEF["bj_chips"]); cfg=bj_cfg()
+            ui_clear(); div("="); ui_print(f"  Chips restored to {cfg['bj_chips']}."); div("=")
+            await ui_input("  > "); continue
+        elif ch.lower()=="d":
+            bj_reset(); cfg=bj_cfg()
+            ui_clear(); div("="); ui_print("  Reset to defaults."); div("=")
+            await ui_input("  > "); continue
+        elif ch.lower()=="c":
+            await bj_config(cfg); cfg=bj_cfg(); continue
+        else:
+            break
     nd=int(cfg["bj_decks"]); shoe=bj_shoe(nd); fresh=True
     while True:
         ok,shoe,cut=await bj_round(cfg,shoe,fresh); fresh=False
@@ -645,17 +737,22 @@ async def vp_round(cfg):
 
 async def vp_main():
     cfg=vp_cfg()
-    ui_clear(); div("="); ui_print("        V I D E O  P O K E R"); div("=")
-    ui_print(f"  Paytable : {cfg['vp_pt'].replace('_',' ').title()}")
-    ui_print(f"  Min bet  : {cfg['vp_minbet']}")
-    ui_print(f"  Chips    : {cfg['vp_chips']}")
-    div(); ui_print("  [R] Reset   [Enter] Start"); div("=")
-    set_btns([("Reset","r"),("Start","")])
-    ch=await ui_input("  > ")
-    if ch.lower()=="r":
-        vp_reset(); cfg=vp_cfg()
-        ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
-        await ui_input("  [Enter]...")
+    while True:
+        ui_clear(); div("="); ui_print("        V I D E O  P O K E R"); div("=")
+        ui_print(f"  Paytable : {cfg['vp_pt'].replace('_',' ').title()}")
+        ui_print(f"  Min bet  : {cfg['vp_minbet']}")
+        ui_print(f"  Chips    : {cfg['vp_chips']}")
+        div(); ui_print("  [R] Reset   [C] Config   [Enter] Start"); div("=")
+        set_btns([("Reset","r"),("Config","c"),("Start","")])
+        ch=await ui_input("  > ")
+        if ch.lower()=="r":
+            vp_reset(); cfg=vp_cfg()
+            ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
+            await ui_input("  > "); continue
+        elif ch.lower()=="c":
+            await vp_config(cfg); cfg=vp_cfg(); continue
+        else:
+            break
     while True:
         ok=await vp_round(cfg)
         if not ok: break
@@ -761,17 +858,22 @@ async def sl_round(cfg):
 
 async def sl_main():
     cfg=sl_cfg()
-    ui_clear(); div("="); ui_print("        S L O T  M A C H I N E"); div("=")
-    ui_print(f"  Min bet : {cfg['sl_minbet']}")
-    ui_print(f"  Max bet : {cfg['sl_maxbet']}")
-    ui_print(f"  Chips   : {cfg['sl_chips']}")
-    div(); ui_print("  [R] Reset   [Enter] Start"); div("=")
-    set_btns([("Reset","r"),("Start","")])
-    ch=await ui_input("  > ")
-    if ch.lower()=="r":
-        sl_reset(); cfg=sl_cfg()
-        ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
-        await ui_input("  [Enter]...")
+    while True:
+        ui_clear(); div("="); ui_print("        S L O T  M A C H I N E"); div("=")
+        ui_print(f"  Min bet : {cfg['sl_minbet']}")
+        ui_print(f"  Max bet : {cfg['sl_maxbet']}")
+        ui_print(f"  Chips   : {cfg['sl_chips']}")
+        div(); ui_print("  [R] Reset   [C] Config   [Enter] Start"); div("=")
+        set_btns([("Reset","r"),("Config","c"),("Start","")])
+        ch=await ui_input("  > ")
+        if ch.lower()=="r":
+            sl_reset(); cfg=sl_cfg()
+            ui_clear(); div("="); ui_print("  Reset. Chips:300."); div("=")
+            await ui_input("  > "); continue
+        elif ch.lower()=="c":
+            await sl_config(cfg); cfg=sl_cfg(); continue
+        else:
+            break
     while True:
         ok=await sl_round(cfg)
         if not ok: break
